@@ -1,32 +1,14 @@
 const http = require('http');
-const https = require('https');
+const tls = require('tls');
 const net = require('net');
 const url = require('url');
-const basePort = 8080;
-const httpPort = 8081;
-const httpsPort = 8082;
-
-const getProxyResponseHandler = (originalResponse) => {
-    return (res) => {
-        originalResponse.writeHead(res.statusCode, res.headers);
-
-        res.on('data', (chunk) => {
-            originalResponse.write(chunk);
-        });
-
-        res.on('end', () => {
-            originalResponse.end();
-        });
-    };
-};
-
-const proxyErrorHandler = (err) => {
-    console.error(`problem with request: ${err.message}`);
-}
+var fs = require('fs');
+const httpPort = 8080;
+const tlsPort = 8081;
 
 
-const requestHandler = (request, response) => {
-    console.log("1111");
+const requestHandler = (request, clientResponse) => {
+    console.log("HTTP handler");
     const urlObject = url.parse(request.url);
 
     const options = {
@@ -37,63 +19,106 @@ const requestHandler = (request, response) => {
         headers: request.headers,
     };
 
-    const proxyRequest = http.request(options);
-
-    request.on('data', (chunk) => {
-        console.log(chunk.toString());
-        proxyRequest.write(chunk);
+    const proxyRequest = http.request(options, (serverResponse) => {
+        clientResponse.writeHead(serverResponse.statusCode, serverResponse.headers);
+        serverResponse.pipe(clientResponse);
     });
-
-    request.on('end', () => {
-        proxyRequest.end();
-    });
-
-    proxyRequest.on('response', getProxyResponseHandler(response));
-    proxyRequest.on('error', proxyErrorHandler);
+    request.pipe(proxyRequest);
 };
 
-httpsRequestHandler = (request, response) => {
-    console.log("2222");
-    response.end("papi para pa pa pu");
-}
 
 
-const httpServer = new http.Server();
-httpServer.on('request', requestHandler);
-httpServer.listen(httpPort, (err) => {
+const tlsServerOptions = {
+    key: fs.readFileSync('rootCA.key'),
+    cert: fs.readFileSync('rootCA.crt'),
+    passphrase: 'qqqq'
+};
+
+const tlsUncoderServer = tls.createServer(tlsServerOptions, (cltSocket) => {
+    cltSocket.on('data', (chunk) => {
+        console.log(chunk.toString('ascii'));
+    });
+});
+
+tlsUncoderServer.listen(tlsPort, (err) => {
+    if (err) {
+        return console.log('something bad happened in tls server', err)
+    }
+    console.log(`tls decoder server listen on port ${httpPort}`);
+});
+
+
+
+const proxy = http.createServer(requestHandler);
+proxy.on('connect', (req, cltSocket, head) => {
+    const { port, hostname } = new url.URL(`http://${req.url}`);
+    // console.log("CONNECT method");
+    // console.log(`port:${port} hostname:${hostname}`);
+
+    const tlsOptions = {
+        key: fs.readFileSync('rootCA.key'),
+        cert: fs.readFileSync('rootCA.crt'),
+        passphrase: 'qqqq',
+        rejectUnauthorized: false
+    };
+
+    const decoderSocket = tls.connect(8081, '127.0.0.1', tlsOptions, () => {
+
+        cltSocket.write('HTTP/1.1 200 Connection Established\r\n' +
+            'Proxy-agent: Node.js-Proxy\r\n' +
+            '\r\n');
+
+
+        decoderSocket.write(head);
+        cltSocket.pipe(decoderSocket);
+
+        //decoderSocket.pipe(cltSocket);
+    });
+
+
+
+    // const options = {
+    //     key: fs.readFileSync('./anita_crt/google_com.key'),
+    //     cert: fs.readFileSync('./anita_crt/google_com.crt'),
+    //     rejectUnauthorized: false
+    // };
+
+    // const srvSocket = tls.connect(port || 80, hostname, options, () => {
+    //     if (srvSocket.authorized) {
+    //         console.log("Connection authorized by a Certificate Authority.");
+    //     } else {
+    //         return;
+    //     }
+
+    //     // cltSocket.write('HTTP/1.1 200 Connection Established\r\n' +
+    //     //     'Proxy-agent: Node.js-Proxy\r\n' +
+    //     //     '\r\n');
+
+    //     srvSocket.write(head);
+    //     srvSocket.pipe(cltSocket);
+    //     cltSocket.pipe(srvSocket);
+
+    //     // cltSocket.on('data', (chunk) => {
+    //     //     console.log(chunk.toString('ascii'));
+    //     // });
+
+    //     // srvSocket.on('data', (chunk) => {
+    //     //     console.log(chunk.toString('ascii'));
+    //     // });
+    // });
+});
+
+proxy.listen(httpPort, (err) => {
     if (err) {
         return console.log('something bad happened in http', err)
     }
-});
-
-const httpsServer = new https.Server();
-httpsServer.on('request', requestHandler);
-httpsServer.listen(httpsPort, (err) => {
-    if (err) {
-        return console.log('something bad happened in https', err)
-    }
+    console.log(`http server listen on port ${httpPort}`);
 });
 
 
 
-net.createServer((conn) => {
-    conn.once('data', function (buf) {
-        const proxyPort = (buf[0] === 67) ? httpsPort : httpPort;
-        console.log(buf);
-        console.log(buf[0]);
-        var proxy = net.createConnection(proxyPort, () => {
-            proxy.write(buf);
-            conn.pipe(proxy).pipe(conn);
-        });
-    });
-}).listen(basePort, (err) => {
-    if (err) {
-        return console.log('something bad happened in main', err)
-    } console.log(`httpServer is listening on ${basePort}`)
-});
 
 
-//https.createServer(httpsOptions, httpsConnection).listen(httpsAddress);
 
 
 
