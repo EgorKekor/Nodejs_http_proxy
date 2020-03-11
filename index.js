@@ -9,8 +9,9 @@ const httpPort = 8080;
 const execOneCommand = async (command, i) => {
     try {
         const { stdout, stderr } = await exec(command, { cwd: './conf' });
+        return;
     } catch (error) {
-        console.error(error);
+        //console.error(error);
     }
 }
 
@@ -38,14 +39,14 @@ const generateOptionsByHostName = async (hostname) => {
             try {
                 return fs.readFileSync("./conf/" + hostname + ".key")
             } catch (e) {
-                console.error(e);
+                //console.error(e);
             }
         })(),
         cert: (() => {
             try {
                 return fs.readFileSync("./conf/" + hostname + ".crt")
             } catch (e) {
-                console.error(e);
+                //console.error(e);
             }
         })(),
         rejectUnauthorized: false
@@ -95,10 +96,10 @@ proxy.on('connect', async (req, cltSocket, head) => {
                 cert: fs.readFileSync('./conf/rootCA.crt'),
                 isServer: true,
             };
-            
+
             const tlsSocket = new tls.TLSSocket(cltSocket, tlsOptions);
             tlsSocket.on('error', (err) => {
-                console.log(`$TLSSocket error: ${err}`);
+                //console.log(`$TLSSocket error: ${err}`);
             });
 
             const { port, hostname } = new url.URL(`http://${req.url}`);
@@ -106,26 +107,25 @@ proxy.on('connect', async (req, cltSocket, head) => {
             try {
                 options = await generateOptionsByHostName(hostname);
             } catch (err) {
-                console.log(err);
+                //console.log(err);
             }
 
             try {
                 const srvSocket = tls.connect(port || 80, hostname, options, () => {
-                    console.log(`hostname:${hostname}`);
                     if (srvSocket.authorized) {
-                        console.log("Connection authorized by a Certificate Authority.");
+                        //console.log(`${hostname} - ++++`);
                     } else {
-                        console.log("Connection authorized error!");
+                        //console.log(`${hostname} - ----`);
                     }
                     srvSocket.write(head);
                     srvSocket.pipe(tlsSocket);
                     tlsSocket.pipe(srvSocket);
                 });
                 srvSocket.on('error', (err) => {
-                    console.log(`$SrvSocket error: ${err}`);
+                    //console.log(`$SrvSocket error: ${err}`);
                 });
             } catch (err) {
-                console.log(err);
+                //console.log(err);
             }
         });
 });
